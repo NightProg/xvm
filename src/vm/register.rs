@@ -627,6 +627,11 @@ impl FlagsRegister {
         self
     }
 
+    pub fn no_interrupt(&mut self) -> &mut Self {
+        self.flags &= !512;
+        self
+    }
+
     pub fn is_direction(&self) -> bool {
         self.flags & 1024 == 1024
     }

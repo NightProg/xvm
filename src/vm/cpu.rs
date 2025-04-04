@@ -122,7 +122,21 @@ impl<'ttf> Cpu<'ttf> {
         match instr.mnemonic() {
             Mnemonic::Int => {
                 let int = instr.immediate8();
+                if !self.flags.is_interrupt() {
+                    return;
+                }
                 self.handle_interrupt(int);
+            },
+            Mnemonic::Lgdt => {
+                let addr = self.get_op0addr(instr).expect("gdt expected") as usize;
+                let limit = self.mem.read_u16(addr);
+                let base = self.mem.read_u32(addr + 2);
+
+
+                println!("limit: {}, base: {}", limit, base);
+            },
+            Mnemonic::Cli => {
+                self.flags.no_interrupt();
             },
             Mnemonic::Cmp => {
                 let op1 = self.get_op1value(instr);
@@ -141,6 +155,19 @@ impl<'ttf> Cpu<'ttf> {
             Mnemonic::Jmp => {
                 let op0 = self.get_op0value(instr);
                 self.ip.rip = op0 as u64;
+                println!("Jump to {}", op0);
+            },
+            Mnemonic::Je => {
+                if self.flags.is_zero() {
+                    let op0 = self.get_op0value(instr);
+                    self.ip.rip = op0 as u64;
+                }
+            },
+            Mnemonic::Jne => {
+                if !self.flags.is_zero() {
+                    let op0 = self.get_op0value(instr);
+                    self.ip.rip = op0 as u64;
+                }
             },
             Mnemonic::Mov => {
                 let op1 = self.get_op1value(instr);
@@ -160,6 +187,11 @@ impl<'ttf> Cpu<'ttf> {
                 let op1 = self.get_op1value(instr);
                 let op0 = self.get_op0value(instr);
                 self.write_op0(instr, op0 & op1);
+            },
+            Mnemonic::Or => {
+                let op1 = self.get_op1value(instr);
+                let op0 = self.get_op0value(instr);
+                self.write_op0(instr, op0 | op1);
             },
             e => {
                 println!("unhandled instruction: {:?}", e);
@@ -183,10 +215,31 @@ impl<'ttf> Cpu<'ttf> {
             let bytes = self.mem.read_many_u8(ip as usize, 15);
             let mut decoder = iced_x86::Decoder::new(self.get_bit().into(), &bytes, iced_x86::DecoderOptions::NONE);
             let instr = decoder.decode();
+            println!("{}", instr);
             self.ip.rip += instr.len() as u64;
             self.run_instr(instr);
             self.vga_render();
             println!();
+        }
+    }
+
+    pub fn get_op0addr(&mut self, instruction: Instruction) -> Option<u64> {
+        if instruction.op0_kind() != iced_x86::OpKind::Memory {
+            None
+        } else {
+            let base_register = instruction.memory_base();
+            let displacement = if self.mode == Mode::Real || self.mode == Mode::Protected {
+                instruction.memory_displacement32() as u64
+            } else {
+                instruction.memory_displacement64()
+            };
+
+            if let iced_x86::Register::None = base_register {
+                Some(displacement)
+            } else {
+                let base_value = self.gpr.get_register_value(base_register);
+                Some(base_value + displacement)
+            }
         }
     }
 
